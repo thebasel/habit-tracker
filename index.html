@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Habit Tracker</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- TOP BAR -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-icon">⚔</span>
+        <div>
+          <h1>Habit Tracker</h1>
+          <p class="tagline">POV: I turned my life into a game…</p>
+        </div>
+      </div>
+      <div class="topbar-stats" id="topbarStats">
+        <!-- filled by JS -->
+      </div>
+      <div class="topbar-actions">
+        <button type="button" class="btn btn-ghost" id="btnSync" title="Device sync / clipboard backup">🔄 Sync</button>
+        <button type="button" class="btn btn-ghost" id="btnExport" title="Export JSON">⬇ Export</button>
+        <button type="button" class="btn btn-ghost" id="btnImport" title="Import JSON">⬆ Import</button>
+        <input type="file" id="importFile" accept=".json,.csv,application/json,text/csv" hidden />
+        <button type="button" class="btn btn-primary" id="btnAddHabit">+ Habit</button>
+      </div>
+    </header>
+
+    <!-- MONTH NAV + LEVEL -->
+    <div class="month-nav">
+      <button type="button" class="btn btn-icon" id="btnPrevMonth" aria-label="Previous month">◀</button>
+      <h2 id="monthLabel">October 2026</h2>
+      <button type="button" class="btn btn-icon" id="btnNextMonth" aria-label="Next month">▶</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="btnToday">Today</button>
+      <div class="level-badge" id="levelBadge" title="XP & Level">
+        <span class="level-ring" id="levelRing"></span>
+        <span id="levelText">Lv 1</span>
+      </div>
+      <div class="score-pills">
+        <span class="pill" id="dailyScorePill">Daily: 0%</span>
+        <span class="pill" id="weeklyScorePill">Week: 0%</span>
+        <span class="pill streak" id="streakPill">🔥 0 day streak</span>
+      </div>
+    </div>
+
+    <main class="dashboard">
+      <!-- LEFT: GRID + WELLNESS -->
+      <section class="panel grid-panel">
+        <div class="panel-head">
+          <h3>My Habits</h3>
+          <span class="hint" id="gridHint">Week 1–5 · Mo–Su</span>
+        </div>
+        <div class="sheet-wrap" id="sheetWrap">
+          <table class="sheet" id="habitSheet">
+            <!-- built by JS -->
+          </table>
+        </div>
+
+        <div class="wellness-block">
+          <h3>Overall wellness</h3>
+          <div class="wellness-row">
+            <div class="wellness-card">
+              <label for="moodSelect">Mood</label>
+              <select id="moodSelect">
+                <option value="">— select —</option>
+                <option value="1">😫 1 · Awful</option>
+                <option value="2">😔 2 · Low</option>
+                <option value="3">😐 3 · OK</option>
+                <option value="4">🙂 4 · Good</option>
+                <option value="5">🔥 5 · Peak</option>
+              </select>
+            </div>
+            <div class="wellness-card">
+              <label for="sleepInput">Hours of Sleep</label>
+              <input type="number" id="sleepInput" min="0" max="24" step="0.5" placeholder="7.5" />
+            </div>
+            <div class="wellness-card wellness-date">
+              <label for="wellnessDate">For date</label>
+              <input type="date" id="wellnessDate" />
+            </div>
+            <button type="button" class="btn btn-primary" id="btnSaveWellness">Save</button>
+          </div>
+          <div class="wellness-chart-wrap">
+            <canvas id="wellnessChart" height="80"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT: STATS + CHARTS + ANALYSIS -->
+      <aside class="side">
+        <section class="panel stats-panel">
+          <h3>Overall stats</h3>
+          <div class="donut-wrap">
+            <canvas id="overallDonut" width="160" height="160"></canvas>
+            <div class="donut-center" id="donutCenter">80%</div>
+          </div>
+          <div class="stat-rows" id="overallStatRows">
+            <div class="stat-row"><span>Goal</span><strong id="statGoal">0</strong></div>
+            <div class="stat-row"><span>Completed</span><strong id="statDone">0</strong></div>
+            <div class="stat-row"><span>Left</span><strong id="statLeft">0</strong></div>
+          </div>
+        </section>
+
+        <section class="panel chart-panel">
+          <h3>Daily Progress</h3>
+          <div class="chart-box">
+            <canvas id="dailyChart"></canvas>
+          </div>
+        </section>
+
+        <section class="panel chart-panel">
+          <h3>Weekly Progress</h3>
+          <div class="chart-box chart-box-sm">
+            <canvas id="weeklyChart"></canvas>
+          </div>
+        </section>
+
+        <section class="panel analysis-panel">
+          <h3>Habit Analysis</h3>
+          <div class="table-scroll">
+            <table class="analysis-table" id="analysisTable">
+              <thead>
+                <tr>
+                  <th>Habit</th>
+                  <th>Goal</th>
+                  <th>Actual</th>
+                  <th>Left</th>
+                  <th>Progress</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel leaderboard-panel">
+          <h3>TOP 10 HABITS</h3>
+          <ol class="leaderboard" id="leaderboard"></ol>
+        </section>
+      </aside>
+    </main>
+  </div>
+
+  <!-- HABIT MODAL -->
+  <dialog id="habitModal" class="modal">
+    <form method="dialog" id="habitForm" class="modal-body">
+      <h2 id="habitModalTitle">Add Habit</h2>
+      <input type="hidden" id="habitId" />
+      <div class="form-grid">
+        <label>
+          Emoji
+          <input type="text" id="habitEmoji" maxlength="4" placeholder="💪" required />
+        </label>
+        <label class="span-2">
+          Name
+          <input type="text" id="habitName" placeholder="Habit name" required />
+        </label>
+        <label class="span-3">
+          Category
+          <input type="text" id="habitCategory" placeholder="e.g. Health, Focus" />
+        </label>
+        <label class="span-3">
+          Schedule
+          <select id="habitSchedule">
+            <option value="everyday">Every day</option>
+            <option value="weekdays">Weekdays (Mo–Fr)</option>
+            <option value="weekends">Weekends (Sa–Su)</option>
+            <option value="custom">Specific weekdays…</option>
+          </select>
+        </label>
+        <div class="weekday-picker span-3" id="weekdayPicker" hidden>
+          <label><input type="checkbox" value="1" checked /> Mo</label>
+          <label><input type="checkbox" value="2" checked /> Tu</label>
+          <label><input type="checkbox" value="3" checked /> We</label>
+          <label><input type="checkbox" value="4" checked /> Th</label>
+          <label><input type="checkbox" value="5" checked /> Fr</label>
+          <label><input type="checkbox" value="6" /> Sa</label>
+          <label><input type="checkbox" value="0" /> Su</label>
+        </div>
+        <label>
+          Start date
+          <input type="date" id="habitStart" />
+        </label>
+        <label>
+          End date
+          <input type="date" id="habitEnd" />
+        </label>
+        <label class="check-label">
+          <input type="checkbox" id="habitEnabled" checked />
+          Enabled
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-danger" id="btnDeleteHabit" hidden>Delete</button>
+        <div class="spacer"></div>
+        <button type="button" class="btn btn-ghost" id="btnCancelHabit">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+
+  <!-- SYNC / BACKUP MODAL -->
+  <dialog id="syncModal" class="modal">
+    <div class="modal-body">
+      <h2>Sync between devices</h2>
+      <p class="sync-lead">No cloud account needed. Copy a backup on one device, paste it on another. Data stays in this browser&rsquo;s <code>localStorage</code>.</p>
+      <div class="sync-actions">
+        <button type="button" class="btn btn-primary" id="btnCopyBackup">📋 Copy backup to clipboard</button>
+        <button type="button" class="btn btn-ghost" id="btnPasteBackup">📥 Paste backup</button>
+      </div>
+      <label class="sync-paste-label" for="pasteBackupArea">Or paste JSON manually</label>
+      <textarea id="pasteBackupArea" class="sync-paste" rows="6" placeholder='{"habits":[...],"completions":[...],"wellness":[...]}'></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="btnApplyPaste">Apply pasted backup</button>
+        <div class="spacer"></div>
+        <button type="button" class="btn btn-primary" id="btnCloseSync">Done</button>
+      </div>
+      <p class="sync-hint">Tip: on phone, open this same site → Sync → Paste. File Export/Import still works for downloads.</p>
+    </div>
+  </dialog>
+
+  <!-- TOAST -->
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
