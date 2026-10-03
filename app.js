@@ -1,6 +1,8 @@
 /**
  * Habit Tracker — local-first gamified habit dashboard
- * Data: habits[], completions[], wellness[]  ·  Persistence: localStorage
+ * Data: habits[], completions[], wellness[]
+ * Persistence: localStorage, plus optional multi-device sync via telegra.ph
+ * (anonymous account + page; the Sync code is the page path, no API key).
  */
 (function () {
   "use strict";
@@ -14,6 +16,7 @@
     habits: [],
     completions: [], // {habitId, date, completed}
     wellness: [],    // {date, mood, sleepHours}
+    updatedAt: 0,
     viewYear: null,
     viewMonth: null, // 0-11
   };
@@ -23,9 +26,9 @@
 
   // —— Seed ——
   const SEED_HABITS = [
-    { name: "Wake up at 05:00", emoji: "⏰", category: "Routine" },
+    { name: "Wake 05:00", emoji: "⏰", category: "Routine" },
     { name: "Gym", emoji: "🏋️‍♂️", category: "Health" },
-    { name: "Reading / Learning", emoji: "📚", category: "Growth" },
+    { name: "Reading/Learning", emoji: "📚", category: "Growth" },
     { name: "Day Planning", emoji: "📋", category: "Focus" },
     { name: "Project Work", emoji: "💻", category: "Focus" },
     { name: "No Alcohol", emoji: "🚫", category: "Discipline" },
@@ -288,12 +291,16 @@
   }
 
   // —— Persistence ——
-  function save() {
+  function save(opts) {
+    const touch = !opts || opts.touch !== false;
+    if (touch) state.updatedAt = Date.now();
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       habits: state.habits,
       completions: state.completions,
       wellness: state.wellness,
+      updatedAt: state.updatedAt || 0,
     }));
+    if (touch) schedulePush();
   }
 
   function load() {
@@ -304,6 +311,12 @@
       state.habits = data.habits || [];
       state.completions = data.completions || [];
       state.wellness = data.wellness || [];
+      if (data.updatedAt == null) {
+        const dirty = state.completions.length > 0 || state.wellness.length > 0;
+        state.updatedAt = dirty ? Date.now() : 0;
+      } else {
+        state.updatedAt = Number(data.updatedAt) || 0;
+      }
       return state.habits.length > 0;
     } catch {
       return false;
@@ -325,7 +338,8 @@
     }));
     state.completions = [];
     state.wellness = [];
-    save();
+    state.updatedAt = 0;
+    save({ touch: false });
   }
 
   // —— Toast ——
@@ -416,12 +430,65 @@
       }
       html += "</tr>";
     }
+
+    html += wellnessSheetRow("Mood", "mood", days, today);
+    html += wellnessSheetRow("Hours of Sleep", "sleep", days, today);
     html += "</tbody>";
     sheet.innerHTML = html;
 
     document.getElementById("monthLabel").textContent = monthLabel(year, month);
     document.getElementById("gridHint").textContent =
       `Week 1–${maxWeek} · ${daysInMonth(year, month)} days · Mo–Su`;
+  }
+
+
+  function wellnessOn(dateStr) {
+    return state.wellness.find((w) => w.date === dateStr) || null;
+  }
+
+  function wellnessSheetRow(label, kind, days, today) {
+    const emoji = kind === "mood" ? "🙂" : "😴";
+    let html = `<tr class="wellness-sheet-row" data-wellness="${kind}">`;
+    html += `<td class="habit-col"><div class="habit-cell-inner">
+      <span class="habit-emoji">${emoji}</span>
+      <span class="habit-name">${escapeHtml(label)}</span>
+    </div></td>`;
+    for (const day of days) {
+      const rec = wellnessOn(day.dateStr);
+      const isToday = day.dateStr === today ? " today-col" : "";
+      if (kind === "mood") {
+        const mood = rec && rec.mood != null ? String(rec.mood) : "";
+        const opts = ["", "1", "2", "3", "4", "5"].map((v) => {
+          const sel = v === mood ? " selected" : "";
+          const lab = v === "" ? "·" : v;
+          return `<option value="${v}"${sel}>${lab}</option>`;
+        }).join("");
+        html += `<td class="cell${isToday}"><select class="cell-input mood-input" data-date="${day.dateStr}" aria-label="Mood ${day.dateStr}">${opts}</select></td>`;
+      } else {
+        const sleep = rec && rec.sleepHours != null ? String(rec.sleepHours) : "";
+        html += `<td class="cell${isToday}"><input class="cell-input sleep-input" type="number" min="0" max="24" step="0.5" inputmode="decimal" data-date="${day.dateStr}" value="${escapeAttr(sleep)}" aria-label="Hours of Sleep ${day.dateStr}" /></td>`;
+      }
+    }
+    html += "</tr>";
+    return html;
+  }
+
+  function upsertWellness(date, patch) {
+    const idx = state.wellness.findIndex((w) => w.date === date);
+    const prev = idx >= 0 ? state.wellness[idx] : { date, mood: null, sleepHours: null };
+    const rec = Object.assign({}, prev, patch, { date });
+    const empty = rec.mood == null && (rec.sleepHours == null || rec.sleepHours === "");
+    if (empty) {
+      if (idx >= 0) state.wellness.splice(idx, 1);
+    } else if (idx >= 0) {
+      state.wellness[idx] = rec;
+    } else {
+      state.wellness.push(rec);
+    }
+    save();
+    updateCharts();
+    const formDate = document.getElementById("wellnessDate").value;
+    if (formDate === date) loadWellnessForm();
   }
 
   function escapeHtml(s) {
@@ -887,13 +954,18 @@
 
 
   function buildBackupPayload() {
-    return {
+    const payload = {
       habits: state.habits,
       completions: state.completions,
       wellness: state.wellness,
+      updatedAt: state.updatedAt || 0,
       exportedAt: new Date().toISOString(),
       version: 1,
     };
+    if (syncMeta.token && syncMeta.path) {
+      payload.sync = { token: syncMeta.token, path: syncMeta.path, title: syncMeta.title || "" };
+    }
+    return payload;
   }
 
   function applyBackupData(data, sourceLabel) {
@@ -913,6 +985,12 @@
     state.habits = data.habits;
     state.completions = Array.isArray(data.completions) ? data.completions : [];
     state.wellness = Array.isArray(data.wellness) ? data.wellness : [];
+    if (data.sync && data.sync.token && data.sync.path) {
+      syncMeta.token = String(data.sync.token);
+      syncMeta.path = String(data.sync.path);
+      syncMeta.title = data.sync.title ? String(data.sync.title) : syncMeta.title;
+      saveSyncMeta();
+    }
     save();
     renderAll();
     return true;
@@ -978,6 +1056,344 @@
     }
   }
 
+
+  // —— Cloud sync (telegra.ph, no API key) ——
+  // Each sync space is an anonymous Telegraph account. The Sync code is the
+  // public page path. The access token lives in the page JSON and in
+  // localStorage so a second device can edit. Last-write-wins via updatedAt.
+  const SYNC_META_KEY = "habit-tracker-sync-v1";
+  const TG_API = "https://api.telegra.ph/";
+  const SYNC_DEBOUNCE_MS = 800;
+  const SYNC_POLL_MS = 15000;
+
+  let syncMeta = { token: "", path: "", title: "" };
+  let syncTimer = null;
+  let syncChain = Promise.resolve();
+  let syncStatus = "local";
+
+  function loadSyncMeta() {
+    try {
+      const raw = localStorage.getItem(SYNC_META_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      syncMeta = {
+        token: data.token || "",
+        path: data.path || "",
+        title: data.title || "",
+      };
+    } catch {
+      syncMeta = { token: "", path: "", title: "" };
+    }
+  }
+
+  function saveSyncMeta() {
+    localStorage.setItem(SYNC_META_KEY, JSON.stringify(syncMeta));
+  }
+
+  function setSyncStatus(stateName, detail) {
+    syncStatus = stateName;
+    const el = document.getElementById("syncStatus");
+    if (!el) return;
+    const labels = {
+      local: "Local only",
+      offline: "Offline",
+      syncing: "Syncing",
+      synced: "Synced",
+      error: "Sync error",
+    };
+    el.dataset.state = stateName;
+    el.textContent = labels[stateName] || stateName;
+    el.title = detail || labels[stateName] || "";
+  }
+
+  function refreshSyncModal() {
+    const linked = !!(syncMeta.token && syncMeta.path);
+    document.getElementById("syncLinkedBox").hidden = !linked;
+    document.getElementById("syncUnlinkedBox").hidden = linked;
+    if (linked) {
+      document.getElementById("syncCodeDisplay").value = syncMeta.path;
+      document.getElementById("syncLinkedHint").textContent =
+        "Open this site on another device → Sync → Join, and paste this code. Newer updatedAt wins.";
+    }
+  }
+
+  function enqueueSync(fn) {
+    const run = syncChain.then(fn, fn);
+    syncChain = run.then(() => {}, () => {});
+    return run;
+  }
+
+  function schedulePush() {
+    if (!syncMeta.token || !syncMeta.path) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => {
+      enqueueSync(() => pushRemote());
+    }, SYNC_DEBOUNCE_MS);
+  }
+
+  function buildRemotePayload() {
+    return {
+      version: 1,
+      app: "habit-tracker",
+      updatedAt: state.updatedAt || 0,
+      accessToken: syncMeta.token,
+      habits: state.habits,
+      completions: state.completions,
+      wellness: state.wellness,
+    };
+  }
+
+  function encodeContent(payload) {
+    return JSON.stringify([{ tag: "pre", children: [JSON.stringify(payload)] }]);
+  }
+
+  function decodeContent(nodes) {
+    const text = nodes && nodes[0] && nodes[0].children && nodes[0].children[0];
+    if (typeof text !== "string") throw new Error("Remote page has no habit data");
+    const data = JSON.parse(text);
+    if (!data || data.app !== "habit-tracker" || !Array.isArray(data.habits)) {
+      throw new Error("That code is not a Habit Tracker sync page");
+    }
+    return data;
+  }
+
+  async function tgGet(method, params) {
+    const url = TG_API + method + "?" + new URLSearchParams(params);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(method + " HTTP " + res.status);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || method + " failed");
+    return json;
+  }
+
+  async function tgPost(method, params) {
+    const res = await fetch(TG_API + method, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+      body: new URLSearchParams(params),
+    });
+    if (!res.ok) throw new Error(method + " HTTP " + res.status);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || method + " failed");
+    return json;
+  }
+
+  function normalizeSyncCode(raw) {
+    let code = String(raw || "").trim();
+    code = code.replace(/^https?:\/\/telegra\.ph\//i, "");
+    code = code.split(/[?#]/)[0].replace(/\/+$/, "");
+    return code;
+  }
+
+  function applyRemoteState(remote) {
+    state.habits = remote.habits || [];
+    state.completions = Array.isArray(remote.completions) ? remote.completions : [];
+    state.wellness = Array.isArray(remote.wellness) ? remote.wellness : [];
+    state.updatedAt = Number(remote.updatedAt) || 0;
+    if (remote.accessToken && !syncMeta.token) syncMeta.token = remote.accessToken;
+    save({ touch: false });
+    renderAll();
+  }
+
+  async function pushRemote() {
+    if (!syncMeta.token || !syncMeta.path) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setSyncStatus("offline", "Offline — changes stay on this device until you reconnect");
+      return;
+    }
+    const sentAt = state.updatedAt || 0;
+    setSyncStatus("syncing");
+    try {
+      const edited = await tgPost("editPage", {
+        access_token: syncMeta.token,
+        path: syncMeta.path,
+        title: syncMeta.title || "ht",
+        content: encodeContent(buildRemotePayload()),
+        return_content: "false",
+      });
+      if (edited.result && edited.result.path && edited.result.path !== syncMeta.path) {
+        syncMeta.path = edited.result.path;
+        saveSyncMeta();
+        refreshSyncModal();
+      }
+      if ((state.updatedAt || 0) !== sentAt) {
+        schedulePush();
+      } else {
+        setSyncStatus("synced", "Synced · " + syncMeta.path);
+      }
+    } catch (err) {
+      setSyncStatus("error", err.message || "Sync error");
+    }
+  }
+
+  async function pullRemote() {
+    if (!syncMeta.path) {
+      setSyncStatus(navigator.onLine === false ? "offline" : "local");
+      return;
+    }
+    if (navigator.onLine === false) {
+      setSyncStatus("offline", "Offline — showing saved data on this device");
+      return;
+    }
+    // Background polls stay on Synced so the badge does not flash every 15s.
+    if (syncStatus !== "synced") setSyncStatus("syncing");
+    let remote;
+    let page;
+    try {
+      page = await tgGet("getPage", { path: syncMeta.path, return_content: "true" });
+      remote = decodeContent(page.result && page.result.content);
+    } catch (err) {
+      setSyncStatus("error", err.message || "Sync error");
+      return;
+    }
+    if (page.result && page.result.title) syncMeta.title = page.result.title;
+    if (remote.accessToken) syncMeta.token = remote.accessToken;
+    saveSyncMeta();
+    const rAt = Number(remote.updatedAt) || 0;
+    const lAt = Number(state.updatedAt) || 0;
+    if (rAt > lAt) {
+      applyRemoteState(remote);
+      setSyncStatus("synced", "Synced · remote was newer");
+    } else if (lAt > rAt) {
+      await pushRemote();
+    } else {
+      setSyncStatus("synced", "Synced · " + syncMeta.path);
+    }
+  }
+
+  async function createSyncCode() {
+    if (syncMeta.path && syncMeta.token) {
+      refreshSyncModal();
+      toast("Already syncing");
+      return syncMeta.path;
+    }
+    if (navigator.onLine === false) {
+      setSyncStatus("offline");
+      toast("You are offline");
+      return "";
+    }
+    setSyncStatus("syncing");
+    try {
+      const acc = await tgGet("createAccount", { short_name: "HabitTracker", author_name: "Habit" });
+      const token = acc.result.access_token;
+      const rand = Math.random().toString(36).slice(2, 10);
+      const title = "ht " + rand;
+      syncMeta = { token, path: "", title };
+      if (!state.updatedAt) state.updatedAt = Date.now();
+      const created = await tgPost("createPage", {
+        access_token: token,
+        title,
+        content: encodeContent(buildRemotePayload()),
+        return_content: "false",
+      });
+      syncMeta.path = created.result.path;
+      syncMeta.title = (created.result && created.result.title) || title;
+      saveSyncMeta();
+      save({ touch: false });
+      refreshSyncModal();
+      setSyncStatus("synced", "Synced · " + syncMeta.path);
+      toast("Sync code ready");
+      return syncMeta.path;
+    } catch (err) {
+      syncMeta = { token: "", path: "", title: "" };
+      setSyncStatus("error", err.message || "Sync error");
+      toast("Could not create sync code");
+      return "";
+    }
+  }
+
+  async function joinSyncCode(raw) {
+    const path = normalizeSyncCode(raw);
+    if (!path || !/^[A-Za-z0-9-]{4,120}$/.test(path)) {
+      toast("Enter the Sync code from the other device");
+      return false;
+    }
+    if (navigator.onLine === false) {
+      setSyncStatus("offline");
+      toast("You are offline");
+      return false;
+    }
+    setSyncStatus("syncing");
+    try {
+      const page = await tgGet("getPage", { path, return_content: "true" });
+      const remote = decodeContent(page.result && page.result.content);
+      if (!remote.accessToken) throw new Error("Sync page is missing its edit key");
+      syncMeta = {
+        token: remote.accessToken,
+        path,
+        title: (page.result && page.result.title) || syncMeta.title || "ht",
+      };
+      saveSyncMeta();
+      const rAt = Number(remote.updatedAt) || 0;
+      const lAt = Number(state.updatedAt) || 0;
+      if (rAt > lAt) applyRemoteState(remote);
+      else if (lAt > rAt) await pushRemote();
+      else setSyncStatus("synced", "Synced · " + path);
+      refreshSyncModal();
+      if (syncStatus !== "error") {
+        setSyncStatus("synced", "Synced · " + path);
+        toast("Joined " + path);
+      }
+      return true;
+    } catch (err) {
+      setSyncStatus("error", err.message || "Sync error");
+      toast(err.message || "Could not join");
+      return false;
+    }
+  }
+
+  function stopSync() {
+    if (!confirm("Stop syncing on this device? Your Sync code keeps working on other devices. Data stays in this browser.")) return;
+    clearTimeout(syncTimer);
+    syncMeta = { token: "", path: "", title: "" };
+    localStorage.removeItem(SYNC_META_KEY);
+    setSyncStatus(navigator.onLine === false ? "offline" : "local");
+    refreshSyncModal();
+    toast("Sync stopped on this device");
+  }
+
+  async function copySyncCode() {
+    const code = syncMeta.path || "";
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      toast("Sync code copied");
+    } catch {
+      const input = document.getElementById("syncCodeDisplay");
+      input.focus();
+      input.select();
+      toast("Copy the code manually");
+    }
+  }
+
+  function pull() {
+    return enqueueSync(() => pullRemote());
+  }
+
+  function startSyncLoop() {
+    if (navigator.onLine === false) setSyncStatus("offline");
+    else if (syncMeta.path) setSyncStatus("syncing");
+    else setSyncStatus("local");
+
+    if (syncMeta.path) pull();
+    setInterval(() => {
+      if (syncMeta.path) pull();
+    }, SYNC_POLL_MS);
+    window.addEventListener("focus", () => {
+      if (syncMeta.path) pull();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && syncMeta.path) pull();
+    });
+    window.addEventListener("online", () => {
+      if (syncMeta.path) pull();
+      else setSyncStatus("local");
+    });
+    window.addEventListener("offline", () => {
+      setSyncStatus("offline", "Offline — changes stay on this device");
+    });
+  }
+
   // —— Events ——
   function bindEvents() {
     document.getElementById("btnPrevMonth").addEventListener("click", () => {
@@ -1005,6 +1421,27 @@
 
     document.getElementById("habitSheet").addEventListener("change", (e) => {
       const t = e.target;
+      if (t.classList.contains("mood-input")) {
+        const mood = t.value === "" ? null : Number(t.value);
+        upsertWellness(t.dataset.date, { mood });
+        return;
+      }
+      if (t.classList.contains("sleep-input")) {
+        const raw = t.value.trim();
+        if (raw === "") {
+          upsertWellness(t.dataset.date, { sleepHours: null });
+          return;
+        }
+        const sleepHours = Number(raw);
+        if (Number.isNaN(sleepHours) || sleepHours < 0 || sleepHours > 24) {
+          toast("Sleep hours must be 0–24");
+          loadWellnessForm();
+          renderSheet();
+          return;
+        }
+        upsertWellness(t.dataset.date, { sleepHours });
+        return;
+      }
       if (!t.classList.contains("cb")) return;
       setCompletion(t.dataset.habit, t.dataset.date, t.checked);
       // Lightweight re-render of stats without full sheet rebuild for speed
@@ -1048,7 +1485,29 @@
 
     document.getElementById("btnSync").addEventListener("click", () => {
       document.getElementById("pasteBackupArea").value = "";
+      refreshSyncModal();
       document.getElementById("syncModal").showModal();
+    });
+    document.getElementById("btnCreateSync").addEventListener("click", () => {
+      createSyncCode();
+    });
+    document.getElementById("btnJoinSync").addEventListener("click", () => {
+      joinSyncCode(document.getElementById("syncCodeInput").value);
+    });
+    document.getElementById("syncCodeInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        joinSyncCode(document.getElementById("syncCodeInput").value);
+      }
+    });
+    document.getElementById("btnCopySyncCode").addEventListener("click", () => {
+      copySyncCode();
+    });
+    document.getElementById("btnSyncNow").addEventListener("click", () => {
+      pull({ forcePushIfNewer: true });
+    });
+    document.getElementById("btnStopSync").addEventListener("click", () => {
+      stopSync();
     });
     document.getElementById("btnCloseSync").addEventListener("click", () => {
       document.getElementById("syncModal").close();
@@ -1082,10 +1541,12 @@
     const now = new Date();
     state.viewYear = now.getFullYear();
     state.viewMonth = now.getMonth();
+    loadSyncMeta();
     seedIfNeeded();
     bindEvents();
     document.getElementById("wellnessDate").value = todayStr();
     renderAll();
+    startSyncLoop();
   }
 
   if (document.readyState === "loading") {
@@ -1102,8 +1563,13 @@
     exportCsv,
     copyBackupToClipboard,
     applyPastedBackup,
+    createSyncCode,
+    joinSyncCode,
+    pull,
+    getSyncCode: () => syncMeta.path || "",
     reset: () => {
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(SYNC_META_KEY);
       location.reload();
     },
   };

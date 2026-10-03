@@ -26,7 +26,8 @@
         <!-- filled by JS -->
       </div>
       <div class="topbar-actions">
-        <button type="button" class="btn btn-ghost" id="btnSync" title="Device sync / clipboard backup">🔄 Sync</button>
+        <span id="syncStatus" class="sync-status" data-state="local" title="Cloud sync status">Local only</span>
+        <button type="button" class="btn btn-ghost" id="btnSync" title="Online sync between devices">🔄 Sync</button>
         <button type="button" class="btn btn-ghost" id="btnExport" title="Export JSON">⬇ Export</button>
         <button type="button" class="btn btn-ghost" id="btnImport" title="Import JSON">⬆ Import</button>
         <input type="file" id="importFile" accept=".json,.csv,application/json,text/csv" hidden />
@@ -209,22 +210,45 @@
 
 
   <!-- SYNC / BACKUP MODAL -->
-  <dialog id="syncModal" class="modal">
+  <dialog id="syncModal" class="modal modal-sync">
     <div class="modal-body">
       <h2>Sync between devices</h2>
-      <p class="sync-lead">No cloud account needed. Copy a backup on one device, paste it on another. Data stays in this browser&rsquo;s <code>localStorage</code>.</p>
+      <p class="sync-lead">No account. Create a Sync code on this device, then enter the same code on another. Changes sync automatically (last write wins). Works offline and catches up when you reconnect. Anyone with the code can read and edit this data.</p>
+      <div id="syncLinkedBox" hidden>
+        <label class="sync-paste-label" for="syncCodeDisplay">Your Sync code</label>
+        <div class="sync-code-row">
+          <input id="syncCodeDisplay" class="sync-code" readonly />
+          <button type="button" class="btn btn-primary" id="btnCopySyncCode">Copy</button>
+        </div>
+        <p class="sync-hint" id="syncLinkedHint"></p>
+        <div class="sync-actions">
+          <button type="button" class="btn btn-ghost" id="btnSyncNow">Sync now</button>
+          <button type="button" class="btn btn-danger" id="btnStopSync">Stop syncing on this device</button>
+        </div>
+      </div>
+      <div id="syncUnlinkedBox">
+        <div class="sync-actions">
+          <button type="button" class="btn btn-primary" id="btnCreateSync">Create Sync code</button>
+        </div>
+        <label class="sync-paste-label" for="syncCodeInput">Or join with a code from another device</label>
+        <div class="sync-code-row">
+          <input id="syncCodeInput" class="sync-code" placeholder="ht-abc123-10-03" autocomplete="off" spellcheck="false" />
+          <button type="button" class="btn btn-primary" id="btnJoinSync">Join</button>
+        </div>
+      </div>
+      <hr class="sync-divider" />
+      <p class="sync-lead">Fallback: copy a backup, or paste JSON. Export / Import still download a file.</p>
       <div class="sync-actions">
-        <button type="button" class="btn btn-primary" id="btnCopyBackup">📋 Copy backup to clipboard</button>
+        <button type="button" class="btn btn-ghost" id="btnCopyBackup">📋 Copy backup to clipboard</button>
         <button type="button" class="btn btn-ghost" id="btnPasteBackup">📥 Paste backup</button>
       </div>
       <label class="sync-paste-label" for="pasteBackupArea">Or paste JSON manually</label>
-      <textarea id="pasteBackupArea" class="sync-paste" rows="6" placeholder='{"habits":[...],"completions":[...],"wellness":[...]}'></textarea>
+      <textarea id="pasteBackupArea" class="sync-paste" rows="5" placeholder='{"habits":[...],"completions":[...],"wellness":[...]}'></textarea>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="btnApplyPaste">Apply pasted backup</button>
         <div class="spacer"></div>
         <button type="button" class="btn btn-primary" id="btnCloseSync">Done</button>
       </div>
-      <p class="sync-hint">Tip: on phone, open this same site → Sync → Paste. File Export/Import still works for downloads.</p>
     </div>
   </dialog>
 
