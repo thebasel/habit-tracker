@@ -1102,8 +1102,29 @@
       error: "Sync error",
     };
     el.dataset.state = stateName;
-    el.textContent = labels[stateName] || stateName;
+    if (stateName === "error") {
+      const reason = String(detail || "unknown error").replace(/^Sync error:?\s*/i, "");
+      el.textContent = "Sync error: " + reason;
+    } else {
+      el.textContent = labels[stateName] || stateName;
+    }
     el.title = detail || labels[stateName] || "";
+    refreshSyncHeader();
+  }
+
+  function refreshSyncHeader() {
+    const chip = document.getElementById("syncCodeChip");
+    const codeEl = document.getElementById("syncCodeHeader");
+    if (!chip || !codeEl) return;
+    if (syncMeta.path) {
+      codeEl.textContent = syncMeta.path;
+      chip.hidden = false;
+      chip.dataset.state = syncStatus;
+    } else {
+      codeEl.textContent = "";
+      chip.hidden = true;
+      delete chip.dataset.state;
+    }
   }
 
   function refreshSyncModal() {
@@ -1222,7 +1243,8 @@
         setSyncStatus("synced", "Synced · " + syncMeta.path);
       }
     } catch (err) {
-      setSyncStatus("error", err.message || "Sync error");
+      const reason = (err && err.message) || "Upload failed";
+      setSyncStatus("error", reason);
     }
   }
 
@@ -1243,7 +1265,8 @@
       page = await tgGet("getPage", { path: syncMeta.path, return_content: "true" });
       remote = decodeContent(page.result && page.result.content);
     } catch (err) {
-      setSyncStatus("error", err.message || "Sync error");
+      const reason = (err && err.message) || "Download failed";
+      setSyncStatus("error", reason);
       return;
     }
     if (page.result && page.result.title) syncMeta.title = page.result.title;
@@ -1279,7 +1302,8 @@
       const rand = Math.random().toString(36).slice(2, 10);
       const title = "ht " + rand;
       syncMeta = { token, path: "", title };
-      if (!state.updatedAt) state.updatedAt = Date.now();
+      // Do not stamp Date.now() onto untouched local data. A later Join
+      // compares updatedAt; a fresh seed must not look newer than a real tracker.
       const created = await tgPost("createPage", {
         access_token: token,
         title,
@@ -1296,8 +1320,9 @@
       return syncMeta.path;
     } catch (err) {
       syncMeta = { token: "", path: "", title: "" };
-      setSyncStatus("error", err.message || "Sync error");
-      toast("Could not create sync code");
+      const reason = (err && err.message) || "Could not create sync code";
+      setSyncStatus("error", reason);
+      toast("Sync error: " + reason);
       return "";
     }
   }
@@ -1336,8 +1361,9 @@
       }
       return true;
     } catch (err) {
-      setSyncStatus("error", err.message || "Sync error");
-      toast(err.message || "Could not join");
+      const reason = (err && err.message) || "Could not join";
+      setSyncStatus("error", reason);
+      toast("Sync error: " + reason);
       return false;
     }
   }
@@ -1370,12 +1396,29 @@
     return enqueueSync(() => pullRemote());
   }
 
+  function ensureSyncCode() {
+    if (syncMeta.token && syncMeta.path) return Promise.resolve(syncMeta.path);
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setSyncStatus("offline", "Offline — a sync code will be created when you reconnect");
+      return Promise.resolve("");
+    }
+    return enqueueSync(() => createSyncCode());
+  }
+
   function startSyncLoop() {
-    if (navigator.onLine === false) setSyncStatus("offline");
-    else if (syncMeta.path) setSyncStatus("syncing");
-    else setSyncStatus("local");
+    if (navigator.onLine === false) {
+      setSyncStatus("offline", syncMeta.path
+        ? "Offline — showing saved data on this device"
+        : "Offline — a sync code will be created when you reconnect");
+    } else if (syncMeta.path) {
+      setSyncStatus("syncing");
+    } else {
+      setSyncStatus("syncing", "Creating a sync code…");
+    }
 
     if (syncMeta.path) pull();
+    else ensureSyncCode();
+
     setInterval(() => {
       if (syncMeta.path) pull();
     }, SYNC_POLL_MS);
@@ -1387,7 +1430,7 @@
     });
     window.addEventListener("online", () => {
       if (syncMeta.path) pull();
-      else setSyncStatus("local");
+      else ensureSyncCode();
     });
     window.addEventListener("offline", () => {
       setSyncStatus("offline", "Offline — changes stay on this device");
@@ -1483,6 +1526,9 @@
     document.getElementById("wellnessDate").addEventListener("change", loadWellnessForm);
 
 
+    document.getElementById("btnCopyHeaderCode").addEventListener("click", () => {
+      copySyncCode();
+    });
     document.getElementById("btnSync").addEventListener("click", () => {
       document.getElementById("pasteBackupArea").value = "";
       refreshSyncModal();

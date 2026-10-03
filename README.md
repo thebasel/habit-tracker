@@ -28,7 +28,7 @@ Then open **http://localhost:8765**. Or open `index.html` directly (`file://` wo
 5. Log **Mood** (1–5) and **Hours of Sleep** (e.g. 7.5) under **Overall wellness**.
 6. Watch live updates: Daily Progress bars, Weekly Progress, overall donut, Habit Analysis (Goal / Actual / Left / %), and **TOP 10 HABITS**.
 7. **Export** downloads JSON (Shift+click Export → completions CSV). **Import** restores a JSON backup (or simple completions CSV).
-8. **Sync** → **Create Sync code**, then on the other device **Sync** → paste that code → **Join**. Checks, habits, and wellness stay aligned automatically. Clipboard backup and Export/Import remain as a fallback.
+8. A **Sync code** is created automatically and shown in the header. On another device, **Sync** → paste that code → **Join**. Checks, habits, and wellness stay aligned automatically. Clipboard backup and Export/Import remain as a fallback.
 
 Edit a habit via ✎ on its row; ▲▼ reorder; Delete confirms before removing.
 
@@ -42,10 +42,10 @@ Edit a habit via ✎ on its row; ▲▼ reorder; Delete confirms before removing
 
 ## Sync between devices
 
-No signup. The badge shows **Local only**, **Offline**, **Syncing**, **Synced**, or **Sync error**.
+No signup. On first load, if this browser has no Sync code yet, the app creates one (your existing habits stay in `localStorage`) and shows the code in the header. The badge turns green **Synced** after the remote save succeeds. If create or upload fails, the badge shows a red **Sync error** plus the reason.
 
-1. On device A, open the live URL → **Sync** → **Create Sync code**. Copy the code (it looks like `ht-ab12cd34-10-03`).
-2. On device B, open the same URL → **Sync** → paste the code → **Join**.
+1. On device A, open the live URL. The header shows the code (it looks like `ht-ab12cd34-10-03`) once **Synced** is green. Copy it.
+2. On device B, open the same URL → **Sync** → paste the code → **Join**. Join replaces this browser’s code. If this browser has no newer edits, the other device’s habits are kept.
 3. After that, each change is saved locally and uploaded about 800ms later. Each open, window focus, and every ~15s, the app downloads the remote copy.
 4. Merge rule: the payload’s `updatedAt` wins. If the remote copy is newer, it replaces this device and the page re-renders. If this device is newer, it uploads. Same timestamp: do nothing.
 5. **Stop syncing on this device** forgets the code locally. The other device keeps working. Export / Import and clipboard paste still work and, if the JSON includes sync info, re-link the device.

@@ -26,6 +26,11 @@
         <!-- filled by JS -->
       </div>
       <div class="topbar-actions">
+        <span id="syncCodeChip" class="sync-code-chip" hidden title="Your sync code — paste it on another device">
+          <span class="sync-code-kicker">Code</span>
+          <code id="syncCodeHeader"></code>
+          <button type="button" class="btn btn-ghost btn-tiny" id="btnCopyHeaderCode">Copy</button>
+        </span>
         <span id="syncStatus" class="sync-status" data-state="local" title="Cloud sync status">Local only</span>
         <button type="button" class="btn btn-ghost" id="btnSync" title="Online sync between devices">🔄 Sync</button>
         <button type="button" class="btn btn-ghost" id="btnExport" title="Export JSON">⬇ Export</button>
@@ -213,7 +218,7 @@
   <dialog id="syncModal" class="modal modal-sync">
     <div class="modal-body">
       <h2>Sync between devices</h2>
-      <p class="sync-lead">No account. Create a Sync code on this device, then enter the same code on another. Changes sync automatically (last write wins). Works offline and catches up when you reconnect. Anyone with the code can read and edit this data.</p>
+      <p class="sync-lead">No account. This device creates a Sync code automatically and shows it in the header (green Synced once the save lands). Paste that same code on another device to join. Changes sync automatically (last write wins). Works offline and catches up when you reconnect. Anyone with the code can read and edit this data.</p>
       <div id="syncLinkedBox" hidden>
         <label class="sync-paste-label" for="syncCodeDisplay">Your Sync code</label>
         <div class="sync-code-row">
@@ -255,6 +260,6 @@
   <!-- TOAST -->
   <div id="toast" class="toast" hidden></div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=20261003c"></script>
 </body>
 </html>
