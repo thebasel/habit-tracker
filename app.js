@@ -1,6 +1,6 @@
 /**
  * Habit Tracker — local-first gamified habit dashboard
- * Data: habits[], completions[], wellness[]
+ * Data: habits[], completions[], wellness[], notes[]
  * Persistence: localStorage, plus optional multi-device sync via telegra.ph
  * (anonymous account + page; the Sync code is the page path, no API key).
  */
@@ -16,6 +16,7 @@
     habits: [],
     completions: [], // {habitId, date, completed}
     wellness: [],    // {date, mood, sleepHours}
+    notes: [],       // {id, text, at, date} — raw dumps, no required labels
     updatedAt: 0,
     viewYear: null,
     viewMonth: null, // 0-11
@@ -298,6 +299,7 @@
       habits: state.habits,
       completions: state.completions,
       wellness: state.wellness,
+      notes: state.notes,
       updatedAt: state.updatedAt || 0,
     }));
     if (touch) schedulePush();
@@ -311,6 +313,7 @@
       state.habits = data.habits || [];
       state.completions = data.completions || [];
       state.wellness = data.wellness || [];
+      state.notes = Array.isArray(data.notes) ? data.notes : [];
       if (data.updatedAt == null) {
         const dirty = state.completions.length > 0 || state.wellness.length > 0;
         state.updatedAt = dirty ? Date.now() : 0;
@@ -338,6 +341,7 @@
     }));
     state.completions = [];
     state.wellness = [];
+    state.notes = [];
     state.updatedAt = 0;
     save({ touch: false });
   }
@@ -751,6 +755,34 @@
     renderAnalysis();
     renderTopbarAndScores();
     loadWellnessForm();
+    renderNotes();
+  }
+
+
+  // —— Notes (fast dump; labels happen later, not here) ——
+  function renderNotes() {
+    const list = document.getElementById("noteList");
+    if (!list) return;
+    const notes = [...(state.notes || [])].sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 8);
+    if (!notes.length) {
+      list.innerHTML = '<li class="note-empty">Nothing dumped yet.</li>';
+      return;
+    }
+    list.innerHTML = notes.map((n) => {
+      const when = n.date || "";
+      const text = String(n.text || "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+      return `<li><time>${when}</time><span>${text}</span></li>`;
+    }).join("");
+  }
+
+  function addNote(text) {
+    const clean = String(text || "").trim();
+    if (!clean) return;
+    state.notes = state.notes || [];
+    state.notes.push({ id: uid(), text: clean, at: Date.now(), date: todayStr() });
+    save();
+    renderNotes();
+    toast("Saved");
   }
 
   // —— Wellness ——
@@ -958,6 +990,7 @@
       habits: state.habits,
       completions: state.completions,
       wellness: state.wellness,
+      notes: state.notes,
       updatedAt: state.updatedAt || 0,
       exportedAt: new Date().toISOString(),
       version: 1,
@@ -985,6 +1018,7 @@
     state.habits = data.habits;
     state.completions = Array.isArray(data.completions) ? data.completions : [];
     state.wellness = Array.isArray(data.wellness) ? data.wellness : [];
+    state.notes = Array.isArray(data.notes) ? data.notes : [];
     if (data.sync && data.sync.token && data.sync.path) {
       syncMeta.token = String(data.sync.token);
       syncMeta.path = String(data.sync.path);
@@ -1161,6 +1195,7 @@
       habits: state.habits,
       completions: state.completions,
       wellness: state.wellness,
+      notes: state.notes,
     };
   }
 
@@ -1210,6 +1245,7 @@
     state.habits = remote.habits || [];
     state.completions = Array.isArray(remote.completions) ? remote.completions : [];
     state.wellness = Array.isArray(remote.wellness) ? remote.wellness : [];
+    state.notes = Array.isArray(remote.notes) ? remote.notes : [];
     state.updatedAt = Number(remote.updatedAt) || 0;
     if (remote.accessToken && !syncMeta.token) syncMeta.token = remote.accessToken;
     save({ touch: false });
@@ -1439,6 +1475,16 @@
 
   // —— Events ——
   function bindEvents() {
+    const noteForm = document.getElementById("noteForm");
+    if (noteForm) {
+      noteForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const input = document.getElementById("noteInput");
+        addNote(input.value);
+        input.value = "";
+        input.focus();
+      });
+    }
     document.getElementById("btnPrevMonth").addEventListener("click", () => {
       state.viewMonth--;
       if (state.viewMonth < 0) {
